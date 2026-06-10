@@ -39,24 +39,44 @@ class AppState(rx.State):
     # ── Inicialización ────────────────────────────────────────────────────────
     @rx.event
     async def iniciar(self):
-        self.indexando    = True
+        """
+        Al iniciar, primero consulta /stats para saber si ya hay datos indexados.
+        Solo indexa si la colección está vacía, evitando el proceso completo en
+        cada arranque cuando los documentos ya fueron procesados anteriormente.
+        """
         self.estado_texto = "Conectando con el servidor..."
         yield
         try:
-            async with httpx.AsyncClient(timeout=120.0) as c:
+            async with httpx.AsyncClient(timeout=30.0) as c:
+                # Verificar que el backend esté activo
                 await c.get(f"{BACKEND}/")
+
+                # Consultar stats sin indexar
+                stats_r = await c.get(f"{BACKEND}/stats")
+                stats   = stats_r.json()
+                total   = stats.get("total_chunks", 0)
+
+            if total > 0:
+                # Ya hay datos — no reindexar, mostrar estado inmediatamente
+                self.bd_lista     = True
+                self.estado_texto = f"✓ {total} fragmentos listos"
+            else:
+                # Colección vacía — indexar por primera vez
+                self.indexando    = True
                 self.estado_texto = "Indexando documentos PDF..."
                 yield
-                r    = await c.post(f"{BACKEND}/indexar")
-                data = r.json()
-            total = data.get("total_chunks", 0)
-            proc  = data.get("archivos_procesados", 0)
-            if total > 0:
-                self.bd_lista     = True
-                self.estado_texto = f"✓ {proc} archivo(s) · {total} fragmentos"
-            else:
-                self.bd_lista     = False
-                self.estado_texto = "Coloca PDFs en /documentos y recarga"
+                async with httpx.AsyncClient(timeout=180.0) as c:
+                    r    = await c.post(f"{BACKEND}/indexar")
+                    data = r.json()
+                proc  = data.get("archivos_procesados", 0)
+                total = data.get("total_chunks", 0)
+                if total > 0:
+                    self.bd_lista     = True
+                    self.estado_texto = f"✓ {proc} archivo(s) · {total} fragmentos"
+                else:
+                    self.bd_lista     = False
+                    self.estado_texto = "Coloca PDFs en /documentos y recarga"
+
         except httpx.ConnectError:
             self.bd_lista     = False
             self.estado_texto = "Backend no disponible"
@@ -64,6 +84,7 @@ class AppState(rx.State):
         except Exception as e:
             self.bd_lista     = False
             self.estado_texto = f"Error: {e}"
+
         self.indexando = False
         yield
 
@@ -79,6 +100,7 @@ class AppState(rx.State):
             return
 
         self.input_texto = ""
+        self.input_key  += 1
         self.cargando    = True
         self.error_texto = ""
         ts = datetime.now().strftime("%H:%M")

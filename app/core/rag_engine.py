@@ -1,19 +1,16 @@
 """
-rag_engine.py — Motor RAG con filtro ético + DeepSeek
+rag_engine.py — Motor RAG con filtro ético doble + DeepSeek
 
-Flujo:
-  1. Filtro ético: bloquea preguntas ilegales/dañinas
-  2. Búsqueda semántica en ChromaDB (5 fragmentos)
-  3. Construcción de contexto con archivo y página
-  4. Llamada a DeepSeek con instrucciones estrictas
-  5. Retorna respuesta + fuentes (archivo + página)
+Filtro capa 1: regex sobre términos ofensivos conocidos
+Filtro capa 2: system prompt instruye al LLM a detectar intención ofensiva
+               y responder con token BLOQUEADO_ETICO si la detecta
 """
 import os
 import re
 from typing import List, Dict, Any
 from openai import OpenAI
 from dotenv import load_dotenv
-from app.core.indexer import search
+from app.core import indexer as _indexer
 
 load_dotenv()
 
@@ -31,53 +28,82 @@ def _get_client() -> OpenAI:
     return _client
 
 
-# ── Filtro ético ──────────────────────────────────────────────────────────────
+# ── Capa 1: filtro por regex ───────────────────────────────────────────────────
 PATRON_ETICO = re.compile(
-    r"\b(hackear|hackea|hacker el wifi|hackear wifi|robar wifi|crackear|"
-    r"acceso no autorizado|contraseña ajena|clave ajena|espiar a|"
-    r"infectar|propagar virus|crear malware|ataque ddos|"
-    r"ransomware como hacer|phishing para robar|robar datos|robar credenciales|"
-    r"bypass de seguridad|evadir firewall|entrar sin permiso|"
-    r"atacar servidor|derribar sitio|doxing|stalkear|"
-    r"hackear cuenta|hackear celular|hackear computadora|"
-    r"sniffear contraseñas|interceptar trafico ajeno)\b",
+    r'\b('
+    # hackear / "como hacker X"
+    r'hack(ear|ea|eo|er)\b|c[o0]mo hacker\b|'
+    # acceso no autorizado
+    r'acceso no autorizado|entrar sin permiso|saltarse (el |la )?(login|autenticaci[oó]n|firewall)|'
+    r'bypass de seguridad|evadir (el |la )?(firewall|autenticaci[oó]n)|'
+    # robo de datos / credenciales
+    r'robar (datos|credenciales|informaci[oó]n|contrase[ñn]as?|claves?|base de datos|registros?)|'
+    r'exfiltrar datos|extraer datos sin permiso|obtener datos ajenos|'
+    r'contrase[ñn]a ajena|clave ajena|'
+    # ataques a bases de datos
+    r'(dump(ear)?|volcar) (la |una )?base de datos|sql injection para robar|inyecci[oó]n sql maliciosa|'
+    # crear malware / código dañino
+    r'(crear|hacer|programar|escribir) (un |una )?(malware|ransomware|troyano|keylogger|spyware|virus)|'
+    r'instalar backdoor|infectar (un |el )?(sistema|equipo|servidor)|'
+    # ataques de red
+    r'(hacer|lanzar|ejecutar|realizar) (un |una )?ataque ddos|como (hacer|lanzar) (un )?ddos|'
+    r'atacar (un |el )?servidor|tirar (un |el )?servidor|derribar (un |el )?sitio|'
+    r'sniffear contrase[ñn]as?|interceptar tr[aá]fico ajeno|'
+    # phishing ofensivo
+    r'(hacer|crear|montar) (un )?(phishing|sitio falso) para robar|'
+    # espionaje / privacidad
+    r'espiar a|doxing|stalkear|rastrear sin permiso|leer correos ajenos|interceptar mensajes ajenos'
+    r')',
     re.IGNORECASE | re.UNICODE,
 )
 
+def _pasa_filtro_regex(pregunta: str) -> bool:
+    return not bool(PATRON_ETICO.search(pregunta))
+
+
 RESPUESTA_ETICA = (
-    "⚠️ **Consulta no permitida por razones éticas**\n\n"
-    "Esta pregunta involucra actividades ilegales, no autorizadas o que podrían "
-    "causar daño a terceros. Como asistente de ciberseguridad, mi función es "
-    "**educativa y defensiva**: ayudar a entender conceptos, proteger sistemas "
-    "y aprender buenas prácticas.\n\n"
+    "⚠️ **Consulta no permitida**\n\n"
+    "Esta pregunta involucra actividades ilegales o no autorizadas. "
+    "Como asistente de ciberseguridad mi enfoque es **educativo y defensivo**.\n\n"
     "Puedo ayudarte con:\n"
-    "- ¿Cómo proteger tu propia red WiFi?\n"
-    "- Buenas prácticas de contraseñas seguras\n"
-    "- Cómo detectar intrusiones en tu red\n"
-    "- Conceptos de seguridad defensiva y cifrado\n\n"
-    "Recuerda: el acceso no autorizado a redes o sistemas es un delito tipificado "
-    "en la mayoría de países."
+    "- Cómo proteger tu red WiFi\n"
+    "- Buenas prácticas de contraseñas\n"
+    "- Detección de intrusiones\n"
+    "- Conceptos de seguridad defensiva\n\n"
+    "El acceso no autorizado a redes o sistemas es un delito en la mayoría de países."
 )
 
-# ── System prompt ─────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """Eres un Asistente Virtual Profesional de Ciberseguridad con enfoque educativo y defensivo.
+RESPUESTA_NO_INFO = (
+    "No encontré información suficiente en los documentos disponibles "
+    "para responder esta pregunta."
+)
 
-REGLAS OBLIGATORIAS:
-1. Responde SOLO usando el CONTEXTO proporcionado abajo.
-2. Si el contexto tiene información relacionada, elabora una respuesta clara y profesional.
-3. Si el contexto NO tiene información suficiente, responde exactamente: "No encontré información suficiente en los documentos disponibles. Consulta a un especialista o agrega más fuentes al sistema."
+# ── Capa 2: system prompt con detección de intención ofensiva ──────────────────
+SYSTEM_PROMPT = """Eres un Asistente Virtual de Ciberseguridad con enfoque EXCLUSIVAMENTE educativo y defensivo.
+
+=== PASO 1 — EVALÚA LA INTENCIÓN (obligatorio antes de responder) ===
+Determina si la pregunta busca realizar alguna de estas acciones:
+- Acceder sin autorización a redes, sistemas, cuentas o dispositivos ajenos
+- Robar, extraer o exfiltrar datos, contraseñas o información de terceros
+- Crear o desplegar malware, ransomware, troyanos, keyloggers o código dañino
+- Lanzar ataques (DDoS, SQL injection ofensivo, phishing para engañar, MITM para robar, etc.)
+- Espiar, rastrear o interceptar comunicaciones de terceros sin consentimiento
+- Cualquier acción ilegal aunque esté formulada como "¿cómo funciona?" o "es para aprender"
+
+Si la intención es ofensiva → responde ÚNICAMENTE con el token: BLOQUEADO_ETICO
+No agregues explicación, no uses markdown, solo el token exacto.
+
+=== PASO 2 — RESPONDE CON EL CONTEXTO ===
+Solo si la intención es legítima y defensiva:
+1. Responde ÚNICAMENTE usando el CONTEXTO proporcionado abajo.
+2. Si el contexto tiene información relevante, elabora una respuesta clara y profesional.
+3. Si el contexto NO tiene información suficiente, responde exactamente: "No encontré información suficiente en los documentos disponibles para responder esta pregunta."
 4. NO inventes datos, estadísticas ni conceptos que no estén en el contexto.
-5. NO respondas preguntas sobre cómo realizar ataques, accesos no autorizados ni actividades ilegales.
-6. Eres educativo y defensivo: explica conceptos, protección y buenas prácticas.
-7. Menciona las fuentes cuando estén disponibles al final de tu respuesta.
+5. Menciona las fuentes al final cuando estén disponibles.
 
 CONTEXTO RECUPERADO:
 {context}
 """
-
-
-def _es_etica(pregunta: str) -> bool:
-    return not bool(PATRON_ETICO.search(pregunta))
 
 
 def _build_context(fragments: List[Dict]) -> str:
@@ -97,8 +123,8 @@ def responder_consulta(pregunta: str) -> Dict[str, Any]:
         "No sustituye la asesoría de un profesional de ciberseguridad certificado."
     )
 
-    # 1. Filtro ético
-    if not _es_etica(pregunta):
+    # Capa 1: regex rápido
+    if not _pasa_filtro_regex(pregunta):
         return {
             "respuesta":   RESPUESTA_ETICA,
             "fuentes":     [],
@@ -106,20 +132,17 @@ def responder_consulta(pregunta: str) -> Dict[str, Any]:
             "advertencia": "Consulta bloqueada por razones éticas.",
         }
 
-    # 2. Búsqueda semántica
-    fragments = search(pregunta, n=5)
+    # Búsqueda semántica
+    fragments = _indexer.search(pregunta, n=5)
     if not fragments:
         return {
-            "respuesta": (
-                "No encontré información suficiente en los documentos disponibles. "
-                "Verifica que los PDFs estén en /documentos y que la indexación esté completa."
-            ),
+            "respuesta":   RESPUESTA_NO_INFO,
             "fuentes":     [],
             "es_etica":    True,
             "advertencia": ADVERTENCIA,
         }
 
-    # 3. Llamar a DeepSeek
+    # Capa 2: LLM con instrucción de detección ética
     context = _build_context(fragments)
     prompt  = SYSTEM_PROMPT.format(context=context)
 
@@ -133,11 +156,20 @@ def responder_consulta(pregunta: str) -> Dict[str, Any]:
             max_tokens=1024,
             temperature=0.2,
         )
-        respuesta = resp.choices[0].message.content or ""
+        respuesta = (resp.choices[0].message.content or "").strip()
     except Exception as e:
         respuesta = f"Error al generar la respuesta con DeepSeek: {str(e)}"
 
-    # 4. Deduplicar fuentes
+    # Capturar token de bloqueo del LLM
+    if respuesta.startswith("BLOQUEADO_ETICO"):
+        return {
+            "respuesta":   RESPUESTA_ETICA,
+            "fuentes":     [],
+            "es_etica":    False,
+            "advertencia": "Consulta bloqueada por razones éticas.",
+        }
+
+    # Deduplicar fuentes
     seen, fuentes = set(), []
     for f in fragments:
         key = (f["metadata"].get("archivo", ""), f["metadata"].get("pagina", 0))
