@@ -40,34 +40,27 @@ class AppState(rx.State):
     @rx.event
     async def iniciar(self):
         """
-        Al iniciar, primero consulta /stats para saber si ya hay datos indexados.
-        Solo indexa si la colección está vacía, evitando el proceso completo en
-        cada arranque cuando los documentos ya fueron procesados anteriormente.
+        Consulta /stats para saber si ya hay datos indexados.
+        Solo indexa si la colección está vacía, evitando el proceso completo
+        cuando los documentos ya fueron procesados anteriormente.
         """
         self.estado_texto = "Conectando con el servidor..."
         yield
         try:
             async with httpx.AsyncClient(timeout=30.0) as c:
-                # Verificar que el backend esté activo
                 await c.get(f"{BACKEND}/")
-
-                # Consultar stats sin indexar
-                stats_r = await c.get(f"{BACKEND}/stats")
-                stats   = stats_r.json()
-                total   = stats.get("total_chunks", 0)
+                stats = (await c.get(f"{BACKEND}/stats")).json()
+                total = stats.get("total_chunks", 0)
 
             if total > 0:
-                # Ya hay datos — no reindexar, mostrar estado inmediatamente
                 self.bd_lista     = True
                 self.estado_texto = f"✓ {total} fragmentos listos"
             else:
-                # Colección vacía — indexar por primera vez
                 self.indexando    = True
                 self.estado_texto = "Indexando documentos PDF..."
                 yield
                 async with httpx.AsyncClient(timeout=180.0) as c:
-                    r    = await c.post(f"{BACKEND}/indexar")
-                    data = r.json()
+                    data = (await c.post(f"{BACKEND}/indexar")).json()
                 proc  = data.get("archivos_procesados", 0)
                 total = data.get("total_chunks", 0)
                 if total > 0:
@@ -120,9 +113,7 @@ class AppState(rx.State):
 
         try:
             async with httpx.AsyncClient(timeout=120.0) as c:
-                r = await c.post(
-                    f"{BACKEND}/consultar", json={"pregunta": pregunta}
-                )
+                r = await c.post(f"{BACKEND}/consultar", json={"pregunta": pregunta})
             if r.status_code == 400:
                 self.error_texto = r.json().get("detail", "Consulta inválida.")
                 self.cargando    = False
@@ -153,13 +144,14 @@ class AppState(rx.State):
                 content=f"Ocurrió un error al consultar la base de datos: {e}",
                 timestamp=ts,
             ))
+
         self.cargando = False
         yield
 
     # ── Helpers ───────────────────────────────────────────────────────────────
     @rx.event
     def set_input(self, v: str):
-        self.input_texto = v
+        self.input_texto = v.replace("\n", "")
         self.error_texto = ""
 
     @rx.event
@@ -169,7 +161,7 @@ class AppState(rx.State):
 
     @rx.event
     async def tecla(self, key: str):
-        if key == "Enter":
+        if key == "Enter" and not self.cargando:
             yield AppState.enviar()
 
     @rx.event
@@ -180,8 +172,7 @@ class AppState(rx.State):
         yield
         try:
             async with httpx.AsyncClient(timeout=180.0) as c:
-                r    = await c.post(f"{BACKEND}/indexar?force=true")
-                data = r.json()
+                data  = (await c.post(f"{BACKEND}/indexar?force=true")).json()
             total = data.get("total_chunks", 0)
             proc  = data.get("archivos_procesados", 0)
             self.bd_lista     = total > 0

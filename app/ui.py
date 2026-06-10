@@ -151,9 +151,12 @@ def chat_input():
     return rx.box(
         rx.hstack(
             rx.text_area(
-                key=AppState.input_key, placeholder="Escribe tu consulta...",
-                value=AppState.input_texto, on_change=AppState.set_input,
-                on_key_down=AppState.tecla, rows="1", flex="1",
+                key=AppState.input_key,
+                placeholder="Escribe tu consulta...",
+                value=AppState.input_texto,
+                on_change=AppState.set_input,
+                on_key_down=AppState.tecla,
+                rows="1", flex="1",
                 background=INP, color=TXT,
                 border=f"1px solid {BOR}", border_radius="8px",
                 padding="10px 13px", font_size="14px", resize="none", outline="none",

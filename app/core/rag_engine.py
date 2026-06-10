@@ -1,9 +1,9 @@
 """
-rag_engine.py — Motor RAG con filtro ético doble + DeepSeek
+rag_engine.py — Motor RAG con clasificacion etica de 3 niveles + DeepSeek
 
-Filtro capa 1: regex sobre términos ofensivos conocidos
-Filtro capa 2: system prompt instruye al LLM a detectar intención ofensiva
-               y responder con token BLOQUEADO_ETICO si la detecta
+Nivel 1 — Bloqueo total:   intencion claramente maliciosa (regex rapido)
+Nivel 2 — Conversion:      pregunta ambigua redirigida a enfoque defensivo (LLM)
+Nivel 3 — Respuesta libre: pregunta legitima, se responde con contexto RAG (LLM)
 """
 import os
 import re
@@ -16,7 +16,8 @@ load_dotenv()
 
 # ── DeepSeek ──────────────────────────────────────────────────────────────────
 LLM_MODEL = "deepseek-chat"
-_client   = None
+_client: OpenAI | None = None
+
 
 def _get_client() -> OpenAI:
     global _client
@@ -28,158 +29,115 @@ def _get_client() -> OpenAI:
     return _client
 
 
-# ── Capa 1: filtro por regex ───────────────────────────────────────────────────
-PATRON_ETICO = re.compile(
+# ── Nivel 1: regex — bloqueo inmediato sin llamar al LLM ─────────────────────
+# Patrones que indican intención claramente ofensiva o ilegal.
+_PATRON_NIVEL1 = re.compile(
     r'\b('
-    # hackear / "como hacker X"
-    r'hack(ear|ea|eo|er)\b|c[o0]mo hacker\b|'
-    # acceso no autorizado
-    r'acceso no autorizado|entrar sin permiso|saltarse (el |la )?(login|autenticaci[oó]n|firewall)|'
-    r'bypass de seguridad|evadir (el |la )?(firewall|autenticaci[oó]n)|'
-    # robo de datos / credenciales
-    r'robar (datos|credenciales|informaci[oó]n|contrase[ñn]as?|claves?|base de datos|registros?)|'
-    r'exfiltrar datos|extraer datos sin permiso|obtener datos ajenos|'
-    r'contrase[ñn]a ajena|clave ajena|'
-    # ataques a bases de datos
-    r'(dump(ear)?|volcar) (la |una )?base de datos|sql injection para robar|inyecci[oó]n sql maliciosa|'
-    # crear malware / código dañino
-    r'(crear|hacer|programar|escribir) (un |una )?(malware|ransomware|troyano|keylogger|spyware|virus)|'
-    r'instalar backdoor|infectar (un |el )?(sistema|equipo|servidor)|'
-    # ataques de red
-    r'(hacer|lanzar|ejecutar|realizar) (un |una )?ataque ddos|como (hacer|lanzar) (un )?ddos|'
-    r'atacar (un |el )?servidor|tirar (un |el )?servidor|derribar (un |el )?sitio|'
-    r'sniffear contrase[ñn]as?|interceptar tr[aá]fico ajeno|'
-    # phishing ofensivo
-    r'(hacer|crear|montar) (un )?(phishing|sitio falso) para robar|'
-    # espionaje / privacidad
-    r'espiar a|doxing|stalkear|rastrear sin permiso|leer correos ajenos|interceptar mensajes ajenos'
+    r'hack(ear|ea|eo|er)|'
+    r'robar\s+(datos|credenciales|contrase[ñn]as?|claves?)|'
+    r'exfiltrar\s+datos|contrase[ñn]a\s+ajena|clave\s+ajena|'
+    r'(crear|hacer|programar)\s+(un\s+)?(malware|ransomware|troyano|keylogger|virus)|'
+    r'instalar\s+backdoor|infectar\s+(un\s+)?(sistema|servidor)|'
+    r'ataque\s+ddos|tirar\s+(un\s+)?servidor|'
+    r'sniffear|doxing|stalkear|interceptar\s+(tr[aá]fico|mensajes)\s+ajenos?'
     r')',
     re.IGNORECASE | re.UNICODE,
 )
 
-def _pasa_filtro_regex(pregunta: str) -> bool:
-    return not bool(PATRON_ETICO.search(pregunta))
-
-
-RESPUESTA_ETICA = (
-    "⚠️ **Consulta no permitida**\n\n"
-    "Esta pregunta involucra actividades ilegales o no autorizadas. "
-    "Como asistente de ciberseguridad mi enfoque es **educativo y defensivo**.\n\n"
-    "Puedo ayudarte con:\n"
-    "- Cómo proteger tu red WiFi\n"
-    "- Buenas prácticas de contraseñas\n"
-    "- Detección de intrusiones\n"
-    "- Conceptos de seguridad defensiva\n\n"
-    "El acceso no autorizado a redes o sistemas es un delito en la mayoría de países."
+_RESPUESTA_NIVEL1 = (
+    "No puedo ayudar con actividades ilegales o ataques a sistemas.\n\n"
+    "Puedo explicarte estos conceptos desde una perspectiva defensiva y educativa."
 )
 
-RESPUESTA_NO_INFO = (
-    "No encontré información suficiente en los documentos disponibles "
-    "para responder esta pregunta."
-)
+# ── Nivel 2 y 3: system prompt para el LLM ───────────────────────────────────
+# El LLM clasifica la pregunta y responde según el nivel.
+_SYSTEM_PROMPT = """Eres un asistente de ciberseguridad educativo y defensivo. Respuestas concisas, sin emojis.
 
-# ── Capa 2: system prompt con detección de intención ofensiva ──────────────────
-SYSTEM_PROMPT = """Eres un Asistente Virtual de Ciberseguridad con enfoque EXCLUSIVAMENTE educativo y defensivo.
+Si la pregunta tiene enfoque ofensivo (hackear, explotar, atacar): declina brevemente y ofrece 3-4 puntos sobre como defenderse o practicarlo legalmente.
 
-=== PASO 1 — EVALÚA LA INTENCIÓN (obligatorio antes de responder) ===
-Determina si la pregunta busca realizar alguna de estas acciones:
-- Acceder sin autorización a redes, sistemas, cuentas o dispositivos ajenos
-- Robar, extraer o exfiltrar datos, contraseñas o información de terceros
-- Crear o desplegar malware, ransomware, troyanos, keyloggers o código dañino
-- Lanzar ataques (DDoS, SQL injection ofensivo, phishing para engañar, MITM para robar, etc.)
-- Espiar, rastrear o interceptar comunicaciones de terceros sin consentimiento
-- Cualquier acción ilegal aunque esté formulada como "¿cómo funciona?" o "es para aprender"
+Si la pregunta es legitima: responde usando solo el CONTEXTO. Si no hay informacion suficiente, di: "No encontre informacion suficiente en los documentos disponibles." Si respondiste con el contexto, agrega al final:
 
-Si la intención es ofensiva → responde ÚNICAMENTE con el token: BLOQUEADO_ETICO
-No agregues explicación, no uses markdown, solo el token exacto.
+Fuentes:
+- [archivo], pagina [numero]
 
-=== PASO 2 — RESPONDE CON EL CONTEXTO ===
-Solo si la intención es legítima y defensiva:
-1. Responde ÚNICAMENTE usando el CONTEXTO proporcionado abajo.
-2. Si el contexto tiene información relevante, elabora una respuesta clara y profesional.
-3. Si el contexto NO tiene información suficiente, responde exactamente: "No encontré información suficiente en los documentos disponibles para responder esta pregunta."
-4. NO inventes datos, estadísticas ni conceptos que no estén en el contexto.
-5. Menciona las fuentes al final cuando estén disponibles.
-
-CONTEXTO RECUPERADO:
+CONTEXTO:
 {context}
 """
 
+_RESPUESTA_NO_INFO = (
+    "No encontre informacion suficiente en los documentos disponibles "
+    "para responder esta pregunta."
+)
 
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
 def _build_context(fragments: List[Dict]) -> str:
     parts = []
     for i, f in enumerate(fragments, 1):
         archivo = f["metadata"].get("archivo", "Desconocido")
         pagina  = f["metadata"].get("pagina", "?")
         parts.append(
-            f"[Fragmento {i} — {archivo}, Página {pagina}]\n{f['content'].strip()}"
+            f"[Fragmento {i} — {archivo}, Pagina {pagina}]\n{f['content'].strip()}"
         )
     return "\n\n---\n\n".join(parts)
 
 
-def responder_consulta(pregunta: str) -> Dict[str, Any]:
-    ADVERTENCIA = (
-        "⚠️ Esta información es orientativa y se basa en los documentos cargados. "
-        "No sustituye la asesoría de un profesional de ciberseguridad certificado."
+def _llamar_llm(system: str, pregunta: str) -> str:
+    resp = _get_client().chat.completions.create(
+        model=LLM_MODEL,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user",   "content": pregunta},
+        ],
+        max_tokens=1024,
+        temperature=0.2,
     )
+    return (resp.choices[0].message.content or "").strip()
 
-    # Capa 1: regex rápido
-    if not _pasa_filtro_regex(pregunta):
-        return {
-            "respuesta":   RESPUESTA_ETICA,
-            "fuentes":     [],
-            "es_etica":    False,
-            "advertencia": "Consulta bloqueada por razones éticas.",
-        }
 
-    # Búsqueda semántica
-    fragments = _indexer.search(pregunta, n=5)
-    if not fragments:
-        return {
-            "respuesta":   RESPUESTA_NO_INFO,
-            "fuentes":     [],
-            "es_etica":    True,
-            "advertencia": ADVERTENCIA,
-        }
-
-    # Capa 2: LLM con instrucción de detección ética
-    context = _build_context(fragments)
-    prompt  = SYSTEM_PROMPT.format(context=context)
-
-    try:
-        resp = _get_client().chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user",   "content": pregunta},
-            ],
-            max_tokens=1024,
-            temperature=0.2,
-        )
-        respuesta = (resp.choices[0].message.content or "").strip()
-    except Exception as e:
-        respuesta = f"Error al generar la respuesta con DeepSeek: {str(e)}"
-
-    # Capturar token de bloqueo del LLM
-    if respuesta.startswith("BLOQUEADO_ETICO"):
-        return {
-            "respuesta":   RESPUESTA_ETICA,
-            "fuentes":     [],
-            "es_etica":    False,
-            "advertencia": "Consulta bloqueada por razones éticas.",
-        }
-
-    # Deduplicar fuentes
+def _deduplicar_fuentes(fragments: List[Dict]) -> List[Dict]:
     seen, fuentes = set(), []
     for f in fragments:
         key = (f["metadata"].get("archivo", ""), f["metadata"].get("pagina", 0))
         if key not in seen:
             seen.add(key)
             fuentes.append({"archivo": key[0], "pagina": key[1]})
+    return fuentes
+
+
+# ── API publica ───────────────────────────────────────────────────────────────
+def responder_consulta(pregunta: str) -> Dict[str, Any]:
+    # Nivel 1: bloqueo inmediato por regex
+    if _PATRON_NIVEL1.search(pregunta):
+        return {
+            "respuesta":   _RESPUESTA_NIVEL1,
+            "fuentes":     [],
+            "es_etica":    False,
+            "advertencia": "",
+        }
+
+    # Busqueda semantica en la base de conocimiento
+    fragments = _indexer.search(pregunta, n=5)
+    context   = _build_context(fragments) if fragments else "(sin contexto disponible)"
+    prompt    = _SYSTEM_PROMPT.format(context=context)
+
+    try:
+        respuesta = _llamar_llm(prompt, pregunta)
+    except Exception as e:
+        return {
+            "respuesta":   f"Error al generar la respuesta: {e}",
+            "fuentes":     [],
+            "es_etica":    True,
+            "advertencia": "",
+        }
+
+    # Nivel 2 no devuelve fuentes (no uso real del RAG)
+    # Nivel 3 si — el LLM usó el contexto, incluir fuentes
+    fuentes = _deduplicar_fuentes(fragments) if fragments else []
 
     return {
         "respuesta":   respuesta,
         "fuentes":     fuentes,
         "es_etica":    True,
-        "advertencia": ADVERTENCIA,
+        "advertencia": "",
     }

@@ -2,7 +2,6 @@
 indexer.py — Pipeline completo: PDF → chunks → embeddings → ChromaDB
 Consolida: pdf_reader, chunker, embeddings, vector_store, indexer
 """
-import os
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -12,14 +11,14 @@ from sentence_transformers import SentenceTransformer
 import chromadb
 
 # ── Configuración ─────────────────────────────────────────────────────────────
-DOCS_FOLDER     = "./documentos"
+DOCS_FOLDER     = Path("./documentos")
 CHROMA_PATH     = "./chroma_db"
 COLLECTION_NAME = "ciberseguridad"
 MODEL_NAME      = "all-MiniLM-L6-v2"
 CHUNK_SIZE      = 800
 CHUNK_OVERLAP   = 100
 
-_model = None
+_model: SentenceTransformer | None = None
 
 
 def _get_model() -> SentenceTransformer:
@@ -38,15 +37,14 @@ def _get_collection():
 
 
 # ── PDF → páginas ─────────────────────────────────────────────────────────────
-def _extract_pages(filepath: str) -> List[Dict]:
-    path   = Path(filepath)
-    reader = PdfReader(str(path))
+def _extract_pages(filepath: Path) -> List[Dict]:
+    reader = PdfReader(str(filepath))
     pages  = []
     for num, page in enumerate(reader.pages, start=1):
         text = (page.extract_text() or "").strip()
         if text:
-            pages.append({"text": text, "page": num, "archivo": path.name})
-    print(f"[PDF] {path.name}: {len(pages)}/{len(reader.pages)} páginas")
+            pages.append({"text": text, "page": num, "archivo": filepath.name})
+    print(f"[PDF] {filepath.name}: {len(pages)}/{len(reader.pages)} páginas")
     return pages
 
 
@@ -115,11 +113,9 @@ def index_documents(force_reload: bool = False) -> Dict[str, Any]:
     if force_reload:
         clear()
 
-    if not os.path.exists(DOCS_FOLDER):
-        os.makedirs(DOCS_FOLDER)
-        return {"total_chunks": 0, "archivos_procesados": 0}
+    DOCS_FOLDER.mkdir(exist_ok=True)
 
-    pdfs = [f for f in Path(DOCS_FOLDER).iterdir()
+    pdfs = [f for f in DOCS_FOLDER.iterdir()
             if f.is_file() and f.suffix.lower() == ".pdf"]
     if not pdfs:
         return {"total_chunks": 0, "archivos_procesados": 0}
@@ -129,20 +125,19 @@ def index_documents(force_reload: bool = False) -> Dict[str, Any]:
 
     for pdf in pdfs:
         try:
-            chunks = _split_pages(_extract_pages(str(pdf)))
+            chunks = _split_pages(_extract_pages(pdf))
             all_chunks.extend(chunks)
             procesados += 1
         except Exception as e:
             print(f"[INDEX] ERROR {pdf.name}: {e}")
 
     if all_chunks:
-        col      = _get_collection()
-        texts    = [c["text"] for c in all_chunks]
-        ids      = [c["fragmento_id"] for c in all_chunks]
-        metas    = [{"archivo": c["archivo"], "pagina": c["pagina"],
-                     "fragmento_id": c["fragmento_id"]} for c in all_chunks]
-        model    = _get_model()
-        embeds   = model.encode(texts, show_progress_bar=True, batch_size=32).tolist()
+        col    = _get_collection()
+        texts  = [c["text"] for c in all_chunks]
+        ids    = [c["fragmento_id"] for c in all_chunks]
+        metas  = [{"archivo": c["archivo"], "pagina": c["pagina"],
+                   "fragmento_id": c["fragmento_id"]} for c in all_chunks]
+        embeds = _get_model().encode(texts, show_progress_bar=True, batch_size=32).tolist()
 
         for i in range(0, len(all_chunks), 100):
             e = min(i + 100, len(all_chunks))
