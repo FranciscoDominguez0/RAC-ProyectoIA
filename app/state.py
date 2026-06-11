@@ -39,11 +39,6 @@ class AppState(rx.State):
     # ── Inicialización ────────────────────────────────────────────────────────
     @rx.event
     async def iniciar(self):
-        """
-        Consulta /stats para saber si ya hay datos indexados.
-        Solo indexa si la colección está vacía, evitando el proceso completo
-        cuando los documentos ya fueron procesados anteriormente.
-        """
         self.estado_texto = "Conectando con el servidor..."
         yield
         try:
@@ -151,6 +146,7 @@ class AppState(rx.State):
     # ── Helpers ───────────────────────────────────────────────────────────────
     @rx.event
     def set_input(self, v: str):
+        # Filtra cualquier \n que pudiera colarse
         self.input_texto = v.replace("\n", "")
         self.error_texto = ""
 
@@ -159,10 +155,7 @@ class AppState(rx.State):
         self.mensajes    = []
         self.error_texto = ""
 
-    @rx.event
-    async def tecla(self, key: str):
-        if key == "Enter" and not self.cargando:
-            yield AppState.enviar()
+    # tecla() eliminado — el Enter ahora lo maneja el script JS en ui.py
 
     @rx.event
     async def recargar(self):

@@ -79,7 +79,6 @@ def status_line():
 
 def sidebar():
     return rx.vstack(
-        # Título + estado
         rx.vstack(
             rx.hstack(
                 rx.box(width="3px", height="18px", background=ACC, border_radius="2px", flex_shrink="0"),
@@ -92,8 +91,6 @@ def sidebar():
             border_bottom=f"0.5px solid {BOR}",
             align_items="flex-start", width="100%",
         ),
-
-        # Acciones
         rx.vstack(
             rx.text("ACCIONES", size="1", color="#2e3a52",
                     style={"font_family": MONO, "letter_spacing": "0.12em"}),
@@ -115,11 +112,7 @@ def sidebar():
             ),
             spacing="2", align_items="flex-start", width="100%",
         ),
-
-        # Divisor
         rx.box(height="0.5px", background=BOR, width="100%"),
-
-        # Sugerencias
         rx.vstack(
             rx.text("CONSULTAS FRECUENTES", size="1", color="#2e3a52",
                     style={"font_family": MONO, "letter_spacing": "0.12em"}),
@@ -134,12 +127,10 @@ def sidebar():
             ) for q in EXAMPLES],
             spacing="1", align_items="flex-start", width="100%",
         ),
-
         rx.spacer(),
         rx.text("v1.0 — RAG + DeepSeek", size="1", color=DIM,
                 style={"font_family": MONO, "padding_top": "14px",
                        "border_top": f"0.5px solid {BOR}"}),
-
         spacing="5", align_items="flex-start",
         width="248px", min_width="248px", height="100vh",
         overflow_y="auto", padding="20px 14px",
@@ -150,12 +141,15 @@ def sidebar():
 def chat_input():
     return rx.box(
         rx.hstack(
+            # El textarea NO tiene on_key_down ni on_key_up.
+            # El script de abajo intercepta el Enter a nivel DOM con preventDefault
+            # antes de que React procese el evento, evitando el \n fantasma.
             rx.text_area(
+                id="chat-input-area",
                 key=AppState.input_key,
                 placeholder="Escribe tu consulta...",
                 value=AppState.input_texto,
                 on_change=AppState.set_input,
-                on_key_down=AppState.tecla,
                 rows="1", flex="1",
                 background=INP, color=TXT,
                 border=f"1px solid {BOR}", border_radius="8px",
@@ -203,10 +197,35 @@ def chat_area():
             id="msgs", flex="1", overflow_y="auto", width="100%", padding_x="28px",
         ),
         chat_input(),
+        # Script 1: scroll automático al fondo
         rx.script("""
-            (function(){var e=document.getElementById('msgs');if(!e)return;
-            function s(){e.scrollTop=e.scrollHeight;}
-            new MutationObserver(s).observe(e,{childList:true,subtree:true});s();})();
+            (function(){
+                var e=document.getElementById('msgs');
+                if(!e)return;
+                function s(){e.scrollTop=e.scrollHeight;}
+                new MutationObserver(s).observe(e,{childList:true,subtree:true});
+                s();
+            })();
+        """),
+        # Script 2: interceptar Enter en el textarea a nivel DOM nativo.
+        # preventDefault() bloquea el \n ANTES de que React lo procese.
+        # Luego dispara el click del botón de envío para mantener un solo flujo.
+        rx.script("""
+            (function attach(){
+                var ta = document.getElementById('chat-input-area');
+                if(!ta){
+                    setTimeout(attach, 200);
+                    return;
+                }
+                ta.addEventListener('keydown', function(e){
+                    if(e.key === 'Enter' && !e.shiftKey){
+                        e.preventDefault();
+                        e.stopPropagation();
+                        var btn = ta.closest('div').querySelector('button[type="button"]');
+                        if(btn && !btn.disabled) btn.click();
+                    }
+                }, true);
+            })();
         """),
         spacing="0", flex="1", height="100vh",
         overflow="hidden", background=BG, align_items="stretch",
