@@ -1,24 +1,16 @@
-"""
-backend.py — API REST con FastAPI + Uvicorn
-Ejecutar: uvicorn backend:api --host 0.0.0.0 --port 8001 --reload
-"""
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
-import uvicorn
 
 from app.core.indexer    import index_documents, get_stats
 from app.core.rag_engine import responder_consulta
 
 api = FastAPI(title="CiberAsistente IA", version="1.0.0")
 
-api.add_middleware(
-    CORSMiddleware, allow_origins=["*"],
-    allow_methods=["*"], allow_headers=["*"],
-)
+api.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# ── Modelos ───────────────────────────────────────────────────────────────────
+
 class ConsultaRequest(BaseModel):
     pregunta: str
 
@@ -37,7 +29,7 @@ class IndexarResponse(BaseModel):
     archivos_procesados: int
     mensaje:             str
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+
 @api.get("/")
 def raiz():
     return {"estado": "activo"}
@@ -54,11 +46,7 @@ def indexar(force: bool = False):
         return IndexarResponse(
             total_chunks=total,
             archivos_procesados=stats["archivos_procesados"],
-            mensaje=(
-                f"{stats['archivos_procesados']} archivo(s), {total} fragmentos indexados."
-                if total > 0 else
-                "No se encontraron PDFs en /documentos."
-            ),
+            mensaje=f"{stats['archivos_procesados']} archivo(s), {total} fragmentos indexados." if total > 0 else "No se encontraron PDFs en /documentos.",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -69,10 +57,6 @@ def consultar(body: ConsultaRequest):
     if not pregunta:
         raise HTTPException(status_code=400, detail="Debe escribir una pregunta.")
     try:
-        resultado = responder_consulta(pregunta)
-        return ConsultaResponse(**resultado)
+        return ConsultaResponse(**responder_consulta(pregunta))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-if __name__ == "__main__":
-    uvicorn.run("backend:api", host="0.0.0.0", port=8001, reload=True)

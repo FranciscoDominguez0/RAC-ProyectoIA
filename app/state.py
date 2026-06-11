@@ -1,8 +1,3 @@
-"""
-state.py — Estado de la app Reflex 0.9.x
-Usa pydantic.BaseModel en lugar de rx.Base (eliminado en 0.9.4)
-Se comunica con FastAPI en localhost:8001 via httpx.
-"""
 import httpx
 import reflex as rx
 from pydantic import BaseModel
@@ -36,7 +31,6 @@ class AppState(rx.State):
     estado_texto: str           = "Iniciando..."
     error_texto:  str           = ""
 
-    # ── Inicialización ────────────────────────────────────────────────────────
     @rx.event
     async def iniciar(self):
         self.estado_texto = "Conectando con el servidor..."
@@ -76,15 +70,10 @@ class AppState(rx.State):
         self.indexando = False
         yield
 
-    # ── Enviar mensaje ────────────────────────────────────────────────────────
     @rx.event
     async def enviar(self):
         pregunta = self.input_texto.strip()
-        if not pregunta or self.cargando:
-            return
-        if len(pregunta) < 3:
-            self.error_texto = "Escribe una pregunta antes de enviar."
-            yield
+        if not pregunta or self.cargando or len(pregunta) < 3:
             return
 
         self.input_texto = ""
@@ -97,11 +86,7 @@ class AppState(rx.State):
         yield
 
         if not self.bd_lista:
-            self.mensajes.append(Mensaje(
-                role="assistant",
-                content="⚠️ Base de conocimiento no disponible. Verifica los documentos y el servidor.",
-                timestamp=ts,
-            ))
+            self.mensajes.append(Mensaje(role="assistant", content="Base de conocimiento no disponible. Verifica los documentos y el servidor.", timestamp=ts))
             self.cargando = False
             yield
             return
@@ -115,38 +100,24 @@ class AppState(rx.State):
                 yield
                 return
             d = r.json()
-            fuentes = [
-                Fuente(archivo=f["archivo"], pagina=f["pagina"])
-                for f in d.get("fuentes", [])
-            ]
             self.mensajes.append(Mensaje(
                 role="assistant",
                 content=d.get("respuesta", ""),
-                fuentes=fuentes,
+                fuentes=[Fuente(archivo=f["archivo"], pagina=f["pagina"]) for f in d.get("fuentes", [])],
                 timestamp=datetime.now().strftime("%H:%M"),
                 advertencia=d.get("advertencia", ""),
                 es_etica=d.get("es_etica", True),
             ))
         except httpx.ConnectError:
-            self.mensajes.append(Mensaje(
-                role="assistant",
-                content="No fue posible conectar con el servidor. Verifica que el backend esté activo.",
-                timestamp=ts,
-            ))
+            self.mensajes.append(Mensaje(role="assistant", content="No fue posible conectar con el servidor. Verifica que el backend esté activo.", timestamp=ts))
         except Exception as e:
-            self.mensajes.append(Mensaje(
-                role="assistant",
-                content=f"Ocurrió un error al consultar la base de datos: {e}",
-                timestamp=ts,
-            ))
+            self.mensajes.append(Mensaje(role="assistant", content=f"Error al consultar: {e}", timestamp=ts))
 
         self.cargando = False
         yield
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
     @rx.event
     def set_input(self, v: str):
-        # Filtra cualquier \n que pudiera colarse
         self.input_texto = v.replace("\n", "")
         self.error_texto = ""
 
@@ -154,8 +125,6 @@ class AppState(rx.State):
     def limpiar(self):
         self.mensajes    = []
         self.error_texto = ""
-
-    # tecla() eliminado — el Enter ahora lo maneja el script JS en ui.py
 
     @rx.event
     async def recargar(self):
@@ -165,14 +134,11 @@ class AppState(rx.State):
         yield
         try:
             async with httpx.AsyncClient(timeout=180.0) as c:
-                data  = (await c.post(f"{BACKEND}/indexar?force=true")).json()
+                data = (await c.post(f"{BACKEND}/indexar?force=true")).json()
             total = data.get("total_chunks", 0)
             proc  = data.get("archivos_procesados", 0)
             self.bd_lista     = total > 0
-            self.estado_texto = (
-                f"✓ {proc} archivo(s) · {total} fragmentos"
-                if total > 0 else "Sin documentos encontrados"
-            )
+            self.estado_texto = f"✓ {proc} archivo(s) · {total} fragmentos" if total > 0 else "Sin documentos encontrados"
         except Exception as e:
             self.error_texto  = str(e)
             self.estado_texto = "Error al recargar"

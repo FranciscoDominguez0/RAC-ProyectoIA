@@ -12,7 +12,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from app.core import indexer as _indexer
 
-load_dotenv()
+load_dotenv(override=True)
 
 # ── DeepSeek ──────────────────────────────────────────────────────────────────
 LLM_MODEL = "deepseek-chat"
