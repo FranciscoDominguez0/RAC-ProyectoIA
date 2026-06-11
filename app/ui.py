@@ -24,23 +24,25 @@ EXAMPLES = [
 # ── Mensajes ──────────────────────────────────────────────────────────────────
 def user_msg(msg: ChatMessage):
     return rx.box(
-        rx.text(msg.content, color=TXT, size="2", style={"line_height": "1.7", "font_family": SANS}),
-        align_self="flex-end", max_width="60%",
-        background="#111827", border=f"1px solid {BOR}",
-        border_radius="10px 10px 2px 10px", padding="10px 14px",
+        rx.text(msg.content, color="#dde8ff", size="2", style={"line_height": "1.7", "font_family": SANS}),
+        align_self="flex-end", max_width="62%",
+        background="#1a2a52", border=f"1px solid #2a3f7a",
+        border_radius="14px 14px 3px 14px", padding="10px 14px",
     )
 
 def assistant_msg(msg: ChatMessage):
-    return rx.hstack(
-        rx.box(width="1px", background=ACC, align_self="stretch", opacity="0.4", flex_shrink="0"),
-        rx.vstack(
+    return rx.vstack(
+        rx.text("Asistente", size="1", color=MUT, weight="medium",
+                style={"font_family": MONO, "letter_spacing": "0.06em"}),
+        rx.box(
             rx.markdown(msg.content, component_map={
                 "p": lambda t: rx.text(t, color=TXT, size="2", style={"line_height": "1.75", "font_family": SANS, "margin_bottom": "6px"}),
                 "code": lambda t: rx.code(t, style={"font_family": MONO, "font_size": "12px", "background": INP, "color": ACC, "padding": "1px 5px", "border_radius": "3px"}),
             }),
-            align_items="flex-start", spacing="0",
+            background=SURF, border=f"1px solid {BOR}",
+            border_radius="3px 14px 14px 14px", padding="10px 14px",
         ),
-        gap="14px", align_items="flex-start", align_self="flex-start", max_width="88%",
+        align_self="flex-start", max_width="88%", spacing="1",
     )
 
 def message_item(msg: ChatMessage):
@@ -49,10 +51,14 @@ def message_item(msg: ChatMessage):
 def typing_indicator():
     return rx.cond(
         AppState.cargando,
-        rx.hstack(
-            rx.box(width="1px", background=ACC, align_self="stretch", opacity="0.4", flex_shrink="0"),
-            rx.hstack(rx.spinner(size="1", color=ACC), rx.text("Procesando", size="2", color=MUT, style={"font_family": SANS}), spacing="2", align="center"),
-            gap="14px", align_items="center",
+        rx.vstack(
+            rx.text("Asistente", size="1", color=MUT, weight="medium",
+                    style={"font_family": MONO, "letter_spacing": "0.06em"}),
+            rx.box(
+                rx.hstack(rx.spinner(size="1", color=ACC), rx.text("Analizando documentos...", size="2", color=MUT, style={"font_family": SANS}), spacing="2", align="center"),
+                background=SURF, border=f"1px solid {BOR}", border_radius="3px 14px 14px 14px", padding="10px 14px",
+            ),
+            align_self="flex-start", spacing="1",
         ),
         rx.box()
     )
@@ -88,53 +94,53 @@ def sidebar():
             ),
             status_line(),
             spacing="1", padding_bottom="16px",
-            border_bottom=f"0.5px solid {BOR}",
+            border_bottom=f"1px solid {BOR}",
             align_items="flex-start", width="100%",
         ),
         rx.vstack(
-            rx.text("ACCIONES", size="1", color="#2e3a52",
-                    style={"font_family": MONO, "letter_spacing": "0.12em"}),
+            rx.text("ACCIONES", size="1", color="#5a6a8a",
+                    style={"font_family": MONO, "letter_spacing": "0.14em", "font_weight": "700"}),
             rx.button(
                 rx.hstack(rx.icon("refresh-cw", size=12), rx.text("Recargar documentos", size="2"), spacing="2"),
                 on_click=AppState.recargar, loading=AppState.indexando,
-                width="100%", background="transparent", color=MUT,
-                border=f"0.5px solid {BOR}", border_radius="6px",
-                padding="7px 10px", cursor="pointer", justify_content="flex-start",
-                style={"font_family": SANS, "_hover": {"color": TXT, "border_color": ACC}},
+                width="100%", background=DIM, color=TXT,
+                border=f"1px solid {BOR}", border_radius="7px",
+                padding="8px 11px", cursor="pointer", justify_content="flex-start",
+                style={"font_family": SANS, "_hover": {"border_color": ACC, "color": "#a0b4ff"}},
             ),
             rx.button(
                 rx.hstack(rx.icon("trash-2", size=12), rx.text("Limpiar conversacion", size="2"), spacing="2"),
                 on_click=AppState.limpiar,
-                width="100%", background="transparent", color=MUT,
-                border=f"0.5px solid {BOR}", border_radius="6px",
-                padding="7px 10px", cursor="pointer", justify_content="flex-start",
-                style={"font_family": SANS, "_hover": {"color": TXT}},
+                width="100%", background=DIM, color=TXT,
+                border=f"1px solid {BOR}", border_radius="7px",
+                padding="8px 11px", cursor="pointer", justify_content="flex-start",
+                style={"font_family": SANS, "_hover": {"border_color": "#c0392b", "color": "#e05252"}},
             ),
             spacing="2", align_items="flex-start", width="100%",
         ),
-        rx.box(height="0.5px", background=BOR, width="100%"),
+        rx.box(height="1px", background=BOR, width="100%"),
         rx.vstack(
-            rx.text("CONSULTAS FRECUENTES", size="1", color="#2e3a52",
-                    style={"font_family": MONO, "letter_spacing": "0.12em"}),
+            rx.text("CONSULTAS FRECUENTES", size="1", color="#5a6a8a",
+                    style={"font_family": MONO, "letter_spacing": "0.14em", "font_weight": "700"}),
             *[rx.button(
                 q, on_click=AppState.set_input(q),
-                width="100%", background="transparent", color=MUT,
-                border="none", border_radius="4px", padding="5px 8px",
+                width="100%", background="transparent", color="#6b7fa3",
+                border="none", border_radius="5px", padding="6px 10px",
                 cursor="pointer", justify_content="flex-start",
                 style={"font_family": SANS, "font_size": "12px", "white_space": "normal",
-                       "text_align": "left", "line_height": "1.5",
-                       "_hover": {"color": TXT, "background": INP}},
+                       "text_align": "left", "line_height": "1.6",
+                       "_hover": {"color": TXT, "background": DIM}},
             ) for q in EXAMPLES],
             spacing="1", align_items="flex-start", width="100%",
         ),
         rx.spacer(),
-        rx.text("v1.0 — RAG + DeepSeek", size="1", color=DIM,
+        rx.text("v1.0 — RAG + DeepSeek", size="1", color=MUT,
                 style={"font_family": MONO, "padding_top": "14px",
-                       "border_top": f"0.5px solid {BOR}"}),
+                       "border_top": f"1px solid {BOR}"}),
         spacing="5", align_items="flex-start",
         width="248px", min_width="248px", height="100vh",
         overflow_y="auto", padding="20px 14px",
-        background=SURF, border_right=f"0.5px solid {BOR}",
+        background=SURF, border_right=f"1px solid {BOR}",
     )
 
 # ── Chat ──────────────────────────────────────────────────────────────────────
@@ -180,8 +186,12 @@ def chat_area():
             rx.cond(
                 AppState.mensajes.length() == 0,
                 rx.vstack(
-                    rx.box(width="28px", height="1px", background=ACC),
-                    rx.text("Consultor de Ciberseguridad", size="5", weight="medium", color=TXT,
+                    rx.box(
+                        rx.icon("shield", size=28, color=ACC),
+                        background=DIM, border=f"1px solid {BOR}",
+                        border_radius="14px", padding="16px",
+                    ),
+                    rx.text("Consultor de Ciberseguridad", size="5", weight="bold", color=TXT,
                             style={"font_family": SANS, "letter_spacing": "-0.02em"}),
                     rx.text("Haz preguntas basadas en los documentos cargados.", size="2", color=MUT,
                             style={"font_family": SANS}),
