@@ -2,9 +2,10 @@ import httpx
 import reflex as rx
 from pydantic import BaseModel
 from datetime import datetime
+import os
 from typing import List
 
-BACKEND = "http://localhost:8001"
+BACKEND = os.getenv("BACKEND_URL", "http://localhost:8001")
 
 
 class Fuente(BaseModel):

@@ -1,0 +1,23 @@
+services:
+  rac-frontend:
+    build: .
+    container_name: rac-frontend
+    command: reflex run --env prod
+    ports:
+      - "3000:3000"
+      - "8000:8000"
+    restart: always
+    environment:
+      - BACKEND_URL=http://rac-backend:8001
+    volumes:
+      - ./.env:/var/www/ciberapp/RAC-ProyectoIA/.env
+
+  rac-backend:
+    build: .
+    container_name: rac-backend
+    command: uvicorn backend:api --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+    restart: always
+    volumes:
+      - ./.env:/var/www/ciberapp/RAC-ProyectoIA/.env
