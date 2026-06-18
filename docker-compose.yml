@@ -21,3 +21,4 @@ services:
     restart: always
     volumes:
       - ./.env:/var/www/ciberapp/RAC-ProyectoIA/.env
+  

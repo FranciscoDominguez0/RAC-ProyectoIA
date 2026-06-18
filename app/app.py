@@ -12,6 +12,6 @@ app = rx.App(
 app.add_page(
     index,
     route="/",
-    title="CiberAsistente IA — Consultor de Ciberseguridad",
+    title="CiberAsistente",
     on_load=AppState.iniciar,
 )
