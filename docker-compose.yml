@@ -12,6 +12,9 @@ services:
       - API_URL=https://rsfsecure.site
     volumes:
       - ./.env:/var/www/ciberapp/RAC-ProyectoIA/.env
+    networks:
+      - rac-network
+      - red-proxy
 
   rac-backend:
     build: .
@@ -22,8 +25,12 @@ services:
     restart: always
     volumes:
       - ./.env:/var/www/ciberapp/RAC-ProyectoIA/.env
+    networks:
+      - rac-network
 
 networks:
-  default:
+  rac-network:
+    driver: bridge
+
+  red-proxy:
     external: true
-    name: red-proxy
