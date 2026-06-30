@@ -51,7 +51,7 @@ _RESPUESTA_NIVEL1 = (
 
 # ── Nivel 2 y 3: system prompt para el LLM ───────────────────────────────────
 # El LLM clasifica la pregunta y responde según el nivel.
-_SYSTEM_PROMPT = """Eres un asistente de ciberseguridad educativo y defensivo. Respuestas concisas, sin emojis.
+_SYSTEM_PROMPT = """Eres un asistente de ciberseguridad educativo y defensivo. Respuestas concisas.
 
 Si la pregunta tiene enfoque ofensivo (hackear, explotar, atacar): declina brevemente y ofrece 3-4 puntos sobre como defenderse o practicarlo legalmente.
 

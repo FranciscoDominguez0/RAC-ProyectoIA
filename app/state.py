@@ -1,7 +1,6 @@
 import httpx
 import reflex as rx
 from pydantic import BaseModel
-from datetime import datetime
 import os
 from typing import List
 
@@ -17,7 +16,6 @@ class Mensaje(BaseModel):
     role:        str
     content:     str
     fuentes:     List[Fuente] = []
-    timestamp:   str          = ""
     advertencia: str          = ""
     es_etica:    bool         = True
 
@@ -81,13 +79,12 @@ class AppState(rx.State):
         self.input_key  += 1
         self.cargando    = True
         self.error_texto = ""
-        ts = datetime.now().strftime("%H:%M")
 
-        self.mensajes.append(Mensaje(role="user", content=pregunta, timestamp=ts))
+        self.mensajes.append(Mensaje(role="user", content=pregunta))
         yield
 
         if not self.bd_lista:
-            self.mensajes.append(Mensaje(role="assistant", content="Base de conocimiento no disponible. Verifica los documentos y el servidor.", timestamp=ts))
+            self.mensajes.append(Mensaje(role="assistant", content="Base de conocimiento no disponible. Verifica los documentos y el servidor."))
             self.cargando = False
             yield
             return
@@ -105,14 +102,13 @@ class AppState(rx.State):
                 role="assistant",
                 content=d.get("respuesta", ""),
                 fuentes=[Fuente(archivo=f["archivo"], pagina=f["pagina"]) for f in d.get("fuentes", [])],
-                timestamp=datetime.now().strftime("%H:%M"),
                 advertencia=d.get("advertencia", ""),
                 es_etica=d.get("es_etica", True),
             ))
         except httpx.ConnectError:
-            self.mensajes.append(Mensaje(role="assistant", content="No fue posible conectar con el servidor. Verifica que el backend esté activo.", timestamp=ts))
+            self.mensajes.append(Mensaje(role="assistant", content="No fue posible conectar con el servidor. Verifica que el backend esté activo."))
         except Exception as e:
-            self.mensajes.append(Mensaje(role="assistant", content=f"Error al consultar: {e}", timestamp=ts))
+            self.mensajes.append(Mensaje(role="assistant", content=f"Error al consultar: {e}"))
 
         self.cargando = False
         yield
